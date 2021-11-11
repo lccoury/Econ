@@ -1,0 +1,381 @@
+---
+output: pdf_document
+fontsize: 12pt
+---
+# Has Climate Change Made Oregon Less Rainy?
+## Luke Coury
+**November 23rd, 2021**
+\hfill\break
+![*Clouds roll over the Columbia George forest, KATU Photo.*](rainforest (KATU Photo).jpg)
+\hfill\break
+\hfill\break
+As a native Oregonian, I love the rain. There is something distinctly Oregonian about donning a rain jacket and hiking past fir trees on a particularly rainy day. But this appreciation for rain is not simply aesthetic. Rain can also serve as a protection against wildfires of increasing severity and frequency and droughts. It is therefore a pressing question how a changing global climate will affect Oregon's precipitation. Anecdotally at least, it seems like Oregon is becoming dryer over time. In my lifetime, it has seemed like droughts and wildfires have become more frequent and severe. Does this imply that climate change is making Oregon less rainy? To explore this question, I will consider the main areas of concern for precipitation in the last century:
+\hfill\break
+\hfill\break
+**1. Trends in total precipitation in Oregon as a whole.**
+\hfill\break
+\hfill\break
+**2. Trends across seasons and climate regions.**
+\hfill\break
+\hfill\break
+**3. Trends in the *way* precipitation has fallen.**
+\hfill\break
+\hfill\break
+Analyzing how climate change has already affected precipitation in these areas over the last century can give us a glimpse into the future of Oregon's climate.
+
+```{r, echo = FALSE, warning = FALSE, results='hide'}
+#DATA CLEANING AND IMPORTING
+
+#set working directory
+setwd("C://Users//lccou//OneDrive//Documents//Econ//Econ_523")
+
+#set up libaries
+library(pacman)
+p_load(dplyr, ggplot2, readr, sf, tigris, taRifx, maptools,
+       rgeos, rgdal, mapproj, gpclib, stringr, broom, lubridate, gridExtra)
+
+
+#### Step 1: Import, Merge, and Clean Region Data ####
+
+
+#import data
+oregon_precip <- read.csv("oregon_rain.csv")
+coast_precip <- read.csv("costal_rain.csv")
+willamate_precip <- read.csv("willamatevalley_rain.csv")
+southwest <- read.csv("southwesternvalley_rain.csv")
+northcascades <- read.csv("northerncascades_rain.csv")
+highplateau <- read.csv("highplateau_rain.csv")
+northcentral <- read.csv("northcentral_rain.csv")
+southcentral <- read.csv("southcentral_rain.csv")
+northeast <- read.csv("northeast_rain.csv")
+southeast <- read.csv("southeast_rain.csv")
+CLsnow <- read.csv("craterlakesnow.csv")
+
+#change oregon_precipitation years to year counts
+oregon_precip <- oregon_precip %>%
+  mutate(year_count = year - 1895)
+
+#add season element:
+oregon_precip <- oregon_precip %>%
+  mutate(season = ifelse(month == 1 | month == 2 | month == 12, "winter",
+                         ifelse(month == 3 | month == 4 | month == 5, "spring",
+                                ifelse(month == 6 | month == 7 | month == 8, "summer", "fall"))))
+
+#make sure month is a factor
+oregon_precip <- oregon_precip %>%
+  mutate(month = factor(month))
+
+
+#coast
+coast_precip <- coast_precip %>%
+  mutate(CLIMDIV = 3501,
+         date = `Oregon`,
+         value = `Climate.Division.1`,
+         anomoly = `Precipitation`)
+coast_precip <- coast_precip[-c(1,2,3,4), -c(1,2,3)]
+#willamate valley
+willamate_precip <- willamate_precip %>%
+  mutate(CLIMDIV = 3502,
+         date = `Oregon`,
+         value = `Climate.Division.2`,
+         anomoly = `Precipitation`)
+willamate_precip <- willamate_precip[-c(1,2,3,4), -c(1,2,3)]
+#southwestern valley
+southwest <- southwest %>%
+  mutate(CLIMDIV = 3503,
+         date = `Oregon`,
+         value = `Climate.Division.3`,
+         anomoly = `Precipitation`)
+southwest <- southwest[-c(1,2,3,4), -c(1,2,3)]
+#north cascades
+northcascades <- northcascades %>%
+  mutate(CLIMDIV = 3504,
+         date = `Oregon`,
+         value = `Climate.Division.4`,
+         anomoly = `Precipitation`)
+northcascades <- northcascades[-c(1,2,3,4), -c(1,2,3)]
+#high plateau
+highplateau <- highplateau %>%
+  mutate(CLIMDIV = 3505,
+         date = `Oregon`,
+         value = `Climate.Division.5`,
+         anomoly = `Precipitation`)
+highplateau <- highplateau[-c(1,2,3,4), -c(1,2,3)]
+#north central
+northcentral <- northcentral %>%
+  mutate(CLIMDIV = 3506,
+         date = `Oregon`,
+         value = `Climate.Division.6`,
+         anomoly = `Precipitation`)
+northcentral <- northcentral[-c(1,2,3,4), -c(1,2,3)]
+#south central
+southcentral <- southcentral %>%
+  mutate(CLIMDIV = 3507,
+         date = `Oregon`,
+         value = `Climate.Division.7`,
+         anomoly = `Precipitation`)
+southcentral <- southcentral[-c(1,2,3,4), -c(1,2,3)]
+#north east
+northeast <- northeast %>%
+  mutate(CLIMDIV = 3508,
+         date = `Oregon`,
+         value = `Climate.Division.8`,
+         anomoly = `Precipitation`)
+northeast <- northeast[-c(1,2,3,4), -c(1,2,3)]
+#southeast 
+southeast <- southeast %>%
+  mutate(CLIMDIV = 3509,
+         date = `Oregon`,
+         value = `Climate.Division.9`,
+         anomoly = `Precipitation`)
+southeast <- southeast[-c(1,2,3,4), -c(1,2,3)]
+
+#merge the data
+division_precip <- rbind(coast_precip,willamate_precip,southwest,northcascades,highplateau,
+                northcentral,southcentral,northeast,southeast)
+
+#destring variables
+division_precip <- division_precip %>%
+  mutate(value = destring(value),
+         anomoly = destring(anomoly))
+
+#modify date string to make it a format compatible with as.Date
+division_precip <- division_precip %>%
+  mutate(date = gsub("(\\d{4})", "\\1/\\2", date),
+         date = paste0(date, "/01"))
+
+#convert date into date format
+division_precip <- division_precip %>%
+  mutate(date = as.Date(date, "%Y/%m/%d"))
+
+#create year and month variables
+division_precip <- division_precip %>%
+  mutate(year = year(date),
+         month = as.factor(months(date)),
+         year_count = (year - 1895))
+
+#### Step 2: Import shape files and convert to data frame####
+
+#import shapefiles for climate divisions
+divisions <- readOGR("C://Users//lccou//OneDrive//Documents//Econ//Econ_523/GIS.OFFICIAL_CLIM_DIVISIONS.shp")
+
+#keep just oregion regions
+divisionsmap_oregon <- divisions[divisions@data$STATE == "Oregon", ]
+
+#find centroids of each climate division
+centroids.df <- as.data.frame(coordinates(divisionsmap_oregon))
+names(centroids.df) <- c("centroid_long", "centroid_lat") 
+
+centroids.df <- centroids.df %>%
+  mutate(id = c(3509, 3507, 3505, 3503, 3504, 3506, 3508, 3501, 3502))
+
+#Convert shapefile into dataframe
+oregon_map <- divisionsmap_oregon %>%
+  fortify(region = "CLIMDIV")
+
+#merge with centroid.df
+oregon_map <- merge(oregon_map, centroids.df, by = "id")
+
+```
+
+\newpage
+# 1. High Level Precipitation Trends in Oregon
+
+The first area of concern is also the simplest to analyze. I want to understand how precipitation in Oregon as a whole has changed over the last century. My initial assumption was that I should observe a downward trend in precipitation levels over time. This assumption would line up with the anecdotal evidence that a dryer Oregon is making wildfires and droughts more severe. To make this analysis, I used data compiled by the National Oceanic and Atmospheric Administration (NOAA) and the Community Collaborative Rain, Hail, & Snow Network (CoCoRAHS). Using this data, I was able to graphing a scatter plot of total monthly precipitation over the last century and then find a trend line: 
+
+
+```{r, echo = FALSE, message=FALSE, warning = FALSE, results='hide'}
+#graph
+oregon_precip %>%
+  filter(year >= 1921) %>%
+  ggplot(aes(x = year, y = value)) +
+  geom_point(stat = "summary", fun.y = "mean") +
+  geom_smooth(method = lm) + 
+  ylab("Anual Average Rainfall") +
+  xlab("Year") + 
+  ggtitle("Trend in Monthly Oregon Precipitation Since 1921")
+
+#Regress value on year count to find coefficient
+oregon_century <- oregon_precip %>%
+  filter(year >= 1921)
+
+reg_oregon <- lm(value ~ year_count + month, data = oregon_century)
+```
+
+What we see from this graph contradicts my assumption. Rather than a downward trend in monthly precipitation, we actually see a slightly *positive* trend in the last century. How are we to reconcile this trend with the perception of a dryer Oregon? Are this positive trend and dryer Oregon mutually elusive? This high-level overview revealed that a more detailed analysis of trends within Oregon was warranted.
+
+
+\newpage
+# 2. Seasonal and Regional Precipitation Trends
+
+It is important to note that there are a number of factors that cause a variation in precipitation within Oregon which are not captured by only viewing Oregon as a whole. Two such factors which I will consider are climate region and season. 
+
+
+## Seasonality and Precipitation
+Oregon experiences considerable seasonality in temperatures and precipitation levels. To capture the effects on seasonality on precipitation levels, I divided the Oregon precipitation by season. I chose seasonal cutoffs so that each season would have three months according to calendar seasons (i.e. December, January, and February constitute winter months, March, April and May constitute Spring months etc.). Clearly this calendar cutoff is somewhat arbitrary and will not perfectly capture true seasonality, however, it will still provide important insight into Oregon's precipitation as shown in the following graph:
+
+```{r, echo = FALSE, warning=FALSE,  message = FALSE}
+oregon_precip %>%
+  filter(year >= 1921) %>%
+  ggplot(aes(x = year, y = value, color = season)) +
+  geom_point(stat = "summary", fun.y = "mean") +
+  geom_smooth(method = lm) + 
+  ylab("Anual Average Rainfall") +
+  xlab("Year") + 
+  ggtitle("Monthly Oregon Precipitation Since 1921 by Season") 
+
+```
+
+From this graph we can see not only how precipitation varies by season, but how the trends in precipitation vary by season. Winter and spring have positive trends, while summer has a negative trend over the same period. Even though there is a positive increase in the overall trend in Oregon, this increase could be coming from the rainy seasons, while the dry seasons could be getting dryer.  
+
+\newpage
+## Climate Divisions and Precipitation
+Oregon is an climatologically diverse state with significantly regional variation in precipitation. To account for this variation, NOAA divides the state into nine climate divisions. Even these climate divisions are too broad to capture the full range of climate diversity. However, analyzing trends in each region should provide a picture into how, or if, precipitation trends differ in different climates. Before I looked at trends though, I needed to understand the variation among these climate divisions.
+
+```{r, echo = FALSE, warning = FALSE}
+#Find average rainfall by climate division
+division_average <- division_precip %>%
+  filter(date > 1921-01-01) %>%
+  group_by(CLIMDIV) %>%
+  summarise(average = mean(value))
+
+df_climate <- merge(oregon_map, division_average, by.x="id", by.y="CLIMDIV")
+#graph the average 
+ggplot() + 
+  geom_map(data = df_climate, 
+           map = df_climate, 
+           aes(map_id = id, x = long, y = lat, fill = average), 
+           color = "white", size = 0.1) +  
+  coord_map() + 
+  labs(fill='Inches of Precipitation') +
+  ggtitle("Average Monthly Precipitation By Climate Division over Last Century") +
+  geom_text(data = df_climate, aes(x = centroid_long, y = centroid_lat, label = id), 
+          color = "gray", size = 2.75, check_overlap = T) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) +
+  scale_fill_continuous(name="Inches of Precipitation", 
+                        low = "beige", high = "darkgreen", 
+                        breaks=c(1, 2, 3, 4, 5, 6), na.value = "grey50")
+
+
+
+```
+In this map we can see the significant variation in average precipitation by climate division. Broadly, divisions west of the cascade mountains, or divisions 3501-3504 which include the coast and the Willamette Valley, are wetter than divisions east of the cascade mountains, divisions 3505-3509 which include the high plateau. This effect is called the rain shadow of cascade mountains, which creates more arid climates east of the cascades. 
+\hfill\break
+\hfill\break
+Now that I had a better understanding of how precipitation varies by region, I could begin to analyze trends within these divisions. Do different climate divisions have different precipitation trends over the same period? To answer this question, I found the trend in average monthly precipitation for each climate division, controlling for seasonality.
+
+```{r, echo = FALSE, message=FALSE, warning = FALSE, results='hide'}
+#find trendline in rainfall by climate region through regression
+trend <- division_precip %>%
+  filter(date >= 1921-01-01) %>%
+  group_by(CLIMDIV) %>%
+  do(model = summary(lm(value ~ year_count + month, data = .))$coefficients)
+
+#keep only coefficient on date variable
+trend <- trend %>%
+  mutate(model = model[2])
+trend <- trend %>%
+  mutate(percent_trend = model*100)
+
+#visualize trend in precipitation by climate division
+
+#merge this data with data frame these coefficients
+trend_map <- merge(oregon_map, trend, by.x="id", by.y="CLIMDIV")
+
+#graph this trend
+ggplot() + 
+  geom_map(data = trend_map, 
+           map = trend_map, 
+           aes(map_id = id, x = long, y = lat, 
+               fill = percent_trend), 
+           color = "white", size = 0.1) +  
+  coord_map() + 
+  ggtitle("Trends in Precipitation By Climate Division over Last Century") +
+  geom_text(data = df_climate, aes(x = centroid_long, y = centroid_lat, label = id), 
+        color = "gray", size = 2.75, check_overlap = T) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) +
+  scale_fill_continuous(name="Change in Precipitation (in inches)",
+                        low = "darkorange1", high = "blue2", 
+                        breaks=c(-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6), na.value = "grey50")
+
+
+
+
+```
+We can see that there are indeed differing trends among climate regions. A fascinating observation can be found by comparing this map to the previous map. There seems to be a difference in trend between the wetter climates west of the cascades and the dryer climates in the eastern rain shadow of the cascades. It seems like the wetter climate divisions are either getting wetter or maintaining similar precipitation levels over time, while the dryer climate divisions are becoming dryer. This shows that even though Oregon as a whole might see a positive trend in precipitation, the driest climate divisions, which are especially vulnerable to drought, could see the opposite.
+
+## What We Learn From Analysing Regional and Seasonal Trends
+Analyzing regional and seasonal variation provides valuable insights which were glossed over by the high-level overview. These trends seems to indicate that the driest parts of Oregon are receiving less precipitation over time. Additionally, although annual rainfall might be trending upward over time, the increase in precipitation is not evenly shared across all seasons. In other words, even though springs along the coast might be becoming rainier, summers in the high desert could be becoming dryer and that has some sobering implications. Even though Oregon as a whole might have a positive trend in precipitation on a year to year basis, conditions which lead to wildfires and droughts, especially in arid areas particularly prone to these events, could be getting more pronounced.  
+
+
+```{r, echo = FALSE, warning=FALSE,  message = FALSE}
+plot_winter <- oregon_precip %>%
+  filter(year >= 1921 & season == "winter") %>%
+  ggplot(aes(x = year, y = value, color = season)) +
+  geom_point(stat = "summary", fun.y = "mean") +
+  geom_smooth(method = lm) + 
+  ylab("Anual Average Rainfall") +
+  xlab("Year") + 
+  ggtitle("Monthly Oregon Precipitation Since 1921") +
+  expand_limits(y=c(0, 9))
+
+plot_fall <- oregon_precip %>%
+  filter(year >= 1921 & season == "fall") %>%
+  ggplot(aes(x = year, y = value, color = season)) +
+  geom_point(stat = "summary", fun.y = "mean") +
+  geom_smooth(method = lm) + 
+  ylab("Anual Average Rainfall") +
+  xlab("Year") + 
+  ggtitle("Monthly Oregon Precipitation Since 1921") +
+  expand_limits(y=c(0, 9))
+
+#grid.arrange(plot_winter, plot_fall, ncol=2)
+
+
+```
+
+# 3. Changes in How Precipitation Falls
+
+Although considering regional and seasonal variation in precipitation provides some important insight into how different parts of Oregon experience precipitation at different times, I have still only considered monthly average values for precipitation. This factor does not consider two important aspects of precipitation: Whether extreme precipitation events are increasing, and the form precipitation is taking.
+
+## Are large precipitation events becoming more frequent?
+
+
+\newpage
+## Oregon Seems To Be Getting Rainier, But Not Snowier
+I final detail I will consider is the form precipitation takes when it falls. In all of my analysis so far, I have considered precipitation in all its forms. However, precipitation falling as rain when it used to fall as snow has serious ecological implications. It is challenging to find data on the proportion of precipitation falling as snow for Oregon as a whole. However, documenting trends even in one area of the cascades can allow for some important observations. Crater Lake National Park has documented the annual snowfall in the park since the 1930s. Using numbers provided by Crater Lake National Park on average annual snowfall by decade there is a clear downward trend in snowfall over the last century.
+
+```{r, echo = FALSE, warning=FALSE,  message = FALSE}
+ggplot(CLsnow, aes(x = decade, y = average.annual.snowfall, fill = average.annual.snowfall)) +
+  geom_col() +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE, color = "#F8766D") +
+  ggtitle("Average Anual Snowfall In Crater Lake NP by Decade") +
+  ylab("Average Anual Snowfall (in inches)") + xlab("Decade") +
+  theme(legend.position = "none")
+```
+It is worth noting that Crater Lake is in the southwestern valley (climate division 3503) which, as can be seen above, has not experienced a substantial decline in precipitation over the last century. From this we can conclude that, at least in Crater Lake, trends in precipitation have been constant, but the precipitation is coming more frequently as rain.  
+
+
+
+
+\newpage
+# Final Thoughts
+My analysis of precipitation trends shows that Oregon as a whole is not getting any less rainy over time. However, a closer inspection reveals that  this effect is not uniform across all seasons and regions. 
+
+
+
+
+
+
+
+
